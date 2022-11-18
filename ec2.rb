@@ -1,29 +1,29 @@
 require 'aws-sdk-ec2'
-require "docopt"
+require 'docopt'
 
 doc = <<DOCOPT
-EC2 Management.
+  EC2 Management.
 
-Usage:
-  ec2 list [--verbose] [-r | -s]
-  ec2 describe <instance>
-  ec2 (start | stop | reboot | terminate) <instance> [--dry-run]
-  ec2 -h | --help
-  ec2 --version
+  Usage:
+    ec2 list [--verbose] [-r | -s]
+    ec2 describe <instance>
+    ec2 (start | stop | reboot | terminate) <instance> [--dry-run]
+    ec2 -h | --help
+    ec2 --version
 
-Options:
-  -h --help       Show this screen.
-  -r, --running   Show only running instances.
-  -s, --stopped   Show only stopped instances.
-  --dry-run       Runs the program in test mode to check permissions without actually making the request.
-  --verbose       Verbose output
-  -v, --version   Show version.
+  Options:
+    -h --help       Show this screen.
+    -r, --running   Show only running instances.
+    -s, --stopped   Show only stopped instances.
+    --dry-run       Runs the program in test mode to check permissions without actually making the request.
+    --verbose       Verbose output
+    -v, --version   Show version.
 DOCOPT
 
 begin
-  args = Docopt::docopt(doc, version: '1.0.0')
+  args = Docopt.docopt(doc, version: '1.0.1')
 rescue Docopt::Exit => e
-  puts doc
+  puts e.message
   exit
 end
 
@@ -33,16 +33,18 @@ instances = ec2_resource.instances
 
 def print(instances, args)
   verbose_output = args['--verbose']
+
   puts "Instances: #{instances.count}"
   instances.each.with_index(1) do |instance, i|
     instance_name = instance.tags.find { |t| break t[:value] if t[:key] == 'Name' }
+    is_running = (instance.state.name == 'running')
     state_reason = instance.state_reason.code unless instance.state_reason.nil?
 
     puts '~' * 50
-    puts  "##{i}"
+    puts "##{i}"
     puts "Instance ID:               #{instance.instance_id}"
     puts "Name:                      #{instance_name}"
-    puts args['--running'] ? "State:                     #{instance.state.name.upcase}" : "State:                     #{instance.state.name.upcase} - Reason: #{state_reason}"
+    puts is_running ? "State:                     #{instance.state.name.upcase}" : "State:                     #{instance.state.name.upcase} - Reason: #{state_reason}"
     puts "Private IP address:        #{instance.private_ip_address}"
 
     if verbose_output || args['describe']
@@ -62,8 +64,10 @@ def print(instances, args)
           puts "                           #{tag.key} = #{tag.value}"
         end
       end
-      puts "Security groups:"
-      instance.security_groups.each { |e| puts "                           Group name = #{e[:group_name]}, Group ID = #{e[:group_id]}"}
+      puts 'Security groups:'
+      instance.security_groups.each do |e|
+        puts "                           Group name = #{e[:group_name]}, Group ID = #{e[:group_id]}"
+      end
     end
   end
 end
@@ -77,24 +81,24 @@ def instance_stopped?(ec2_client, args)
     case state
     when 'stopping'
       puts 'The instance is already stopping.'
-      return true
+      true
     when 'stopped'
       puts 'The instance is already stopped.'
-      return true
+      true
     when 'terminated'
       puts 'Error stopping instance: ' \
         'the instance is terminated, so you cannot stop it.'
-      return false
+      false
     end
   end
 
   ec2_client.stop_instances(instance_ids: [instance_id], dry_run: args['--dry-run'])
   ec2_client.wait_until(:instance_stopped, instance_ids: [instance_id])
   puts 'Instance stopped.'
-  return true
+  true
 rescue StandardError => e
   puts "Error stopping instance: #{e.message}"
-  return false
+  false
 end
 
 def instance_started?(ec2_client, args)
@@ -120,13 +124,13 @@ def instance_started?(ec2_client, args)
   ec2_client.start_instances(instance_ids: [instance_id], dry_run: args['--dry-run'])
   ec2_client.wait_until(:instance_running, instance_ids: [instance_id])
   puts 'Instance started.'
-  return true
+  true
 rescue StandardError => e
   puts "Error starting instance: #{e.message}"
-  return false
+  false
 end
 
-def attempt_reboot(client, instance, args)
+def reboot_instance(client, instance, args)
   instance_id = args['<instance>']
   if instance.state.name == 'terminated'
     puts 'Error requesting reboot: the instance is already terminated.'
@@ -138,7 +142,7 @@ rescue StandardError => e
   puts "Error requesting reboot: #{e.message}"
 end
 
-def attempt_termination(client, instance, args)
+def instance_terminated?(client, instance, args)
   instance_id = args['<instance>']
   if instance.state.name == 'terminated'
     puts 'The instance is already terminated.'
@@ -148,7 +152,7 @@ def attempt_termination(client, instance, args)
   client.terminate_instances(instance_ids: [args['<instance>']], dry_run: args['--dry-run'])
   client.wait_until(:instance_terminated, instance_ids: [instance_id])
   puts 'Instance terminated.'
-  return true
+  true
 rescue StandardError => e
   puts "Error terminating instance: #{e.message}"
 end
@@ -181,9 +185,7 @@ when args['start']
   else
     puts "Attempting to start instance '#{args['<instance>']}' " \
     '(this might take a few minutes)...'
-    unless instance_started?(client, args)
-      puts 'Could not start instance.'
-    end
+    puts 'Could not start instance.' unless instance_started?(client, args)
   end
 when args['stop']
   instance = instances.find { |i| i.instance_id == args['<instance>'] }
@@ -192,9 +194,7 @@ when args['stop']
   else
     puts "Attempting to stop instance #{args['<instance>']} " \
     '(this might take a few minutes)...'
-    unless instance_stopped?(client, args)
-      puts 'Could not stop instance.'
-    end
+    puts 'Could not stop instance.' unless instance_stopped?(client, args)
   end
 when args['reboot']
   instance = instances.find { |i| i.instance_id == args['<instance>'] }
@@ -203,7 +203,7 @@ when args['reboot']
   else
     puts "Attempting to reboot instance #{args['<instance>']} " \
     '(this might take a few minutes)...'
-    attempt_reboot(client, instance, args)
+    reboot_instance(client, instance, args)
   end
 when args['terminate']
   instance = instances.find { |i| i.instance_id == args['<instance>'] }
@@ -212,8 +212,6 @@ when args['terminate']
   else
     puts "Attempting to terminate instance #{args['<instance>']} " \
     '(this might take a few minutes)...'
-    unless attempt_termination(client, instance, args)
-      puts 'Could not terminate instance.'
-    end
+    puts 'Could not terminate instance.' unless instance_terminated?(client, instance, args)
   end
 end
