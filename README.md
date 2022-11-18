@@ -4,9 +4,13 @@ This is a simple script to manage existing EC2 instances on AWS.
 
 **Requirements**
 
-Ruby >= 2.3
+`Ruby >= 2.3`
 
 You have to set up your AWS credentials as described in the [official documentation](https://docs.aws.amazon.com/sdk-for-ruby/v3/developer-guide/setup-config.html)
+
+**Install gems**
+
+`bundle install`
 
 **Usage**
 
