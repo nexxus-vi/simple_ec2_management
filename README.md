@@ -1,4 +1,4 @@
-**Simple EC2 Manager Script**
+**Simple EC2 Management Script**
 
 This is a simple script to manage existing EC2 instances on AWS. 
 
@@ -16,8 +16,8 @@ You have to set up your AWS credentials as described in the [official documentat
 
 ```
   ec2 list [--verbose] [-r | -s]
-  ec2 describe <instance>
-  ec2 (start | stop | reboot | terminate) <instance> [--dry-run]
+  ec2 describe <instance_id>
+  ec2 (start | stop | reboot | terminate) <instance_id> [--dry-run]
   ec2 -h | --help
   ec2 --version
 
@@ -46,6 +46,5 @@ Private IP address:        0.0.0.0
 
 $ ruby ec2.rb start i-123456789 --dry-run
 Attempting to start instance 'i-123456789' (this might take a few minutes)...
-Error starting instance: Request would have succeeded, but DryRun flag is set.
-Could not start instance.
+Check permissions to perform this operation: Request would have succeeded, but DryRun flag is set.
 ```
