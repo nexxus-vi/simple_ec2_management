@@ -6,8 +6,8 @@ doc = <<DOCOPT
 
   Usage:
     ec2 list [--verbose] [-r | -s]
-    ec2 describe <instance>
-    ec2 (start | stop | reboot | terminate) <instance> [--dry-run]
+    ec2 describe <instance_id>
+    ec2 (start | stop | reboot | terminate) <instance_id> [--dry-run]
     ec2 -h | --help
     ec2 --version
 
@@ -21,21 +21,26 @@ doc = <<DOCOPT
 DOCOPT
 
 begin
-  args = Docopt.docopt(doc, version: '1.0.1')
+  @args = Docopt.docopt(doc, version: '1.1.0')
 rescue Docopt::Exit => e
   puts e.message
   exit
 end
 
-client = Aws::EC2::Client.new
-ec2_resource = Aws::EC2::Resource.new(client: client)
-instances = ec2_resource.instances
+@client ||= Aws::EC2::Client.new
+@resource ||= Aws::EC2::Resource.new(client: @client)
 
-def print(instances, args)
-  verbose_output = args['--verbose']
+def find_ec2_by(instance_id)
+  @ec2 = @resource.instances.find { |i| i.instance_id == instance_id }
+  puts("No instance found with id: #{instance_id}") || return if @ec2.nil?
+  @ec2
+end
 
-  puts "Instances: #{instances.count}"
-  instances.each.with_index(1) do |instance, i|
+def print(ec2)
+  verbose_output = @args['--verbose']
+
+  puts "Instances: #{ec2.count}"
+  ec2.each.with_index(1) do |instance, i|
     instance_name = instance.tags.find { |t| break t[:value] if t[:key] == 'Name' }
     is_running = (instance.state.name == 'running')
     state_reason = instance.state_reason.code unless instance.state_reason.nil?
@@ -47,7 +52,7 @@ def print(instances, args)
     puts is_running ? "State:                     #{instance.state.name.upcase}" : "State:                     #{instance.state.name.upcase} - Reason: #{state_reason}"
     puts "Private IP address:        #{instance.private_ip_address}"
 
-    if verbose_output || args['describe']
+    if verbose_output || @args['describe']
       puts "Instance type:             #{instance.instance_type}"
       puts "Location:                  #{instance.placement.availability_zone}"
       puts "IAM instance profile ARN:  #{instance.iam_instance_profile.arn}" unless instance.iam_instance_profile.nil?
@@ -72,146 +77,117 @@ def print(instances, args)
   end
 end
 
-def instance_stopped?(ec2_client, args)
-  instance_id = args['<instance>']
-  response = ec2_client.describe_instance_status(instance_ids: [instance_id])
+def start_instance
+  instance_id = @ec2.instance_id
+  state = @ec2.state.name
 
-  if response.instance_statuses.count.positive?
-    state = response.instance_statuses[0].instance_state.name
-    case state
-    when 'stopping'
-      puts 'The instance is already stopping.'
-      true
-    when 'stopped'
-      puts 'The instance is already stopped.'
-      true
-    when 'terminated'
-      puts 'Error stopping instance: ' \
-        'the instance is terminated, so you cannot stop it.'
-      false
-    end
-  end
-
-  ec2_client.stop_instances(instance_ids: [instance_id], dry_run: args['--dry-run'])
-  ec2_client.wait_until(:instance_stopped, instance_ids: [instance_id])
-  puts 'Instance stopped.'
-  true
-rescue StandardError => e
-  puts "Error stopping instance: #{e.message}"
-  false
-end
-
-def instance_started?(ec2_client, args)
-  instance_id = args['<instance>']
-  response = ec2_client.describe_instance_status(instance_ids: [instance_id])
-
-  if response.instance_statuses.count.positive?
-    state = response.instance_statuses[0].instance_state.name
+  unless @args['--dry-run']
     case state
     when 'pending'
-      puts 'Error starting instance: the instance is pending. Try again later.'
-      return false
+      puts('Error starting instance: the instance is pending. Try again later.') || return
     when 'running'
-      puts 'The instance is already running.'
-      return true
+      puts('The instance is already running.') || return
     when 'terminated'
-      puts 'Error starting instance: ' \
-        'the instance is terminated, so you cannot start it.'
-      return false
+      puts('Error starting instance: the instance is terminated, so you cannot start it.') || return
     end
   end
 
-  ec2_client.start_instances(instance_ids: [instance_id], dry_run: args['--dry-run'])
-  ec2_client.wait_until(:instance_running, instance_ids: [instance_id])
+  @client.start_instances(instance_ids: [instance_id], dry_run: @args['--dry-run'])
+  @client.wait_until(:instance_running, instance_ids: [instance_id])
   puts 'Instance started.'
-  true
+rescue Aws::EC2::Errors::DryRunOperation => e
+  puts "Check permissions to perform this operation: #{e.message}"
 rescue StandardError => e
   puts "Error starting instance: #{e.message}"
-  false
 end
 
-def reboot_instance(client, instance, args)
-  instance_id = args['<instance>']
-  if instance.state.name == 'terminated'
-    puts 'Error requesting reboot: the instance is already terminated.'
-  else
-    client.reboot_instances(instance_ids: [instance_id], dry_run: args['--dry-run'])
-    puts 'Reboot request sent.'
+def stop_instance
+  instance_id = @ec2.instance_id
+  state = @ec2.state.name
+
+  unless @args['--dry-run']
+    case state
+    when 'stopping'
+      puts('The instance is already stopping.') || return
+    when 'stopped'
+      puts('The instance is already stopped.') || return
+    when 'terminated'
+      puts('Error stopping instance: the instance is terminated, so you cannot stop it.') || return
+    end
   end
+
+  @client.stop_instances(instance_ids: [instance_id], dry_run: @args['--dry-run'])
+  @client.wait_until(:instance_stopped, instance_ids: [instance_id])
+  puts 'Instance stopped.'
+rescue Aws::EC2::Errors::DryRunOperation => e
+  puts "Check permissions to perform this operation: #{e.message}"
 rescue StandardError => e
-  puts "Error requesting reboot: #{e.message}"
+  puts "Error stopping instance: #{e.message}"
 end
 
-def instance_terminated?(client, instance, args)
-  instance_id = args['<instance>']
-  if instance.state.name == 'terminated'
-    puts 'The instance is already terminated.'
-    return true
+def reboot_instance
+  instance_id = @ec2.instance_id
+
+  unless @args['--dry-run']
+    if @ec2.state.name == 'terminated'
+      puts('Error requesting reboot: the instance is already terminated.') || return
+    else
+      @client.reboot_instances(instance_ids: [instance_id], dry_run: @args['--dry-run'])
+      puts 'Reboot request sent.'
+    end
   end
 
-  client.terminate_instances(instance_ids: [args['<instance>']], dry_run: args['--dry-run'])
-  client.wait_until(:instance_terminated, instance_ids: [instance_id])
+rescue Aws::EC2::Errors::DryRunOperation => e
+puts "Check permissions to perform this operation: #{e.message}"
+rescue StandardError => e
+puts "Error requesting reboot: #{e.message}"
+end
+
+def terminate_instance
+  instance_id = @ec2.instance_id
+
+  unless @args['--dry-run']
+    if @ec2.state.name == 'terminated'
+      puts('The instance is already terminated.') || return
+    end
+  end
+
+  @client.terminate_instances(instance_ids: [instance_id], dry_run: @args['--dry-run'])
+  @client.wait_until(:instance_terminated, instance_ids: [instance_id])
   puts 'Instance terminated.'
-  true
+rescue Aws::EC2::Errors::DryRunOperation => e
+  puts("Check permissions to perform this operation: #{e.message}") || return
 rescue StandardError => e
-  puts "Error terminating instance: #{e.message}"
+  puts("Error terminating instance: #{e.message}") || return
 end
+
+def execute_action(action_name)
+  if @ec2
+    puts "Attempting to #{action_name} instance #{@ec2.instance_id}, (this might take a few minutes)..."
+    send("#{action_name}_instance")
+  end
+end
+
+@ec2 = @args['<instance_id>'].nil? ? @resource.instances : find_ec2_by(@args['<instance_id>'])
 
 case
-when args['list']
-  if instances.count.zero?
-    puts 'No instances found.'
-  else
-    filter_status = args['--running'] || args['--stopped']
+when @args['list']
+  puts("No instances found ") || return if @ec2.nil?
 
-    if filter_status
-      state_name = args['--running'] ? 'running' : 'stopped'
-      instances = instances.select {|i| i.state.name == state_name}
-    end
-
-    print(instances, args)
+  filter_state = @args['--running'] || @args['--stopped']
+  if filter_state
+    state_name = @args['--running'] ? 'running' : 'stopped'
+    @ec2 = @ec2.select {|i| i.state.name == state_name}
   end
-when args['describe']
-  instance = instances.find { |i| i.instance_id == args['<instance>'] }
-  if instance.nil?
-    puts "No instance found with id: #{args['<instance>']}"
-  else
-    print([instance], args)
-  end
-when args['start']
-  instance = instances.find { |i| i.instance_id == args['<instance>'] }
-  if instance.nil?
-    puts "No instance found with id: #{args['<instance>']}"
-  else
-    puts "Attempting to start instance '#{args['<instance>']}' " \
-    '(this might take a few minutes)...'
-    puts 'Could not start instance.' unless instance_started?(client, args)
-  end
-when args['stop']
-  instance = instances.find { |i| i.instance_id == args['<instance>'] }
-  if instance.nil?
-    puts "No instance found with id: #{args['<instance>']}"
-  else
-    puts "Attempting to stop instance #{args['<instance>']} " \
-    '(this might take a few minutes)...'
-    puts 'Could not stop instance.' unless instance_stopped?(client, args)
-  end
-when args['reboot']
-  instance = instances.find { |i| i.instance_id == args['<instance>'] }
-  if instance.nil?
-    puts "No instance found with id: #{args['<instance>']}"
-  else
-    puts "Attempting to reboot instance #{args['<instance>']} " \
-    '(this might take a few minutes)...'
-    reboot_instance(client, instance, args)
-  end
-when args['terminate']
-  instance = instances.find { |i| i.instance_id == args['<instance>'] }
-  if instance.nil?
-    puts "No instance found with id: #{args['<instance>']}"
-  else
-    puts "Attempting to terminate instance #{args['<instance>']} " \
-    '(this might take a few minutes)...'
-    puts 'Could not terminate instance.' unless instance_terminated?(client, instance, args)
-  end
+  print(@ec2)
+when @args['describe']
+  print([@ec2]) if @ec2
+when @args['start']
+  execute_action('start')
+when @args['stop']
+  execute_action('stop')
+when @args['reboot']
+  execute_action('reboot')
+when @args['terminate']
+  execute_action('terminate')
 end
