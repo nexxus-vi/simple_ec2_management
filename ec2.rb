@@ -31,9 +31,9 @@ end
 @resource ||= Aws::EC2::Resource.new(client: @client)
 
 def find_ec2_by(instance_id)
-  @ec2 = @resource.instances.find { |i| i.instance_id == instance_id }
-  puts("No instance found with id: #{instance_id}") || return if @ec2.nil?
-  @ec2
+  ec2 = @resource.instances.find { |i| i.instance_id == instance_id }
+  puts("No instance found with id: #{instance_id}") || return if ec2.nil?
+  ec2
 end
 
 def print(ec2)
@@ -77,12 +77,18 @@ def print(ec2)
   end
 end
 
-def start_instance
-  instance_id = @ec2.instance_id
-  state = @ec2.state.name
+def exception_handler(e, action)
+  case e
+  when Aws::EC2::Errors::DryRunOperation
+    puts "Check permissions to perform this operation: #{e.message}"
+  when StandardError
+    puts "Error requesting #{action} action: #{e.message}"
+  end
+end
 
+def start_instance
   unless @args['--dry-run']
-    case state
+    case @ec2.state.name
     when 'pending'
       puts('Error starting instance: the instance is pending. Try again later.') || return
     when 'running'
@@ -92,21 +98,16 @@ def start_instance
     end
   end
 
-  @client.start_instances(instance_ids: [instance_id], dry_run: @args['--dry-run'])
-  @client.wait_until(:instance_running, instance_ids: [instance_id])
-  puts 'Instance started.'
-rescue Aws::EC2::Errors::DryRunOperation => e
-  puts "Check permissions to perform this operation: #{e.message}"
-rescue StandardError => e
-  puts "Error starting instance: #{e.message}"
+  @client.start_instances(instance_ids: [@ec2.instance_id], dry_run: @args['--dry-run'])
+  @client.wait_until(:instance_running, instance_ids: [@ec2.instance_id])
+  puts 'Instance started successfully.'
+rescue => e
+  exception_handler(e, 'start')
 end
 
 def stop_instance
-  instance_id = @ec2.instance_id
-  state = @ec2.state.name
-
   unless @args['--dry-run']
-    case state
+    case @ec2.state.name
     when 'stopping'
       puts('The instance is already stopping.') || return
     when 'stopped'
@@ -116,64 +117,50 @@ def stop_instance
     end
   end
 
-  @client.stop_instances(instance_ids: [instance_id], dry_run: @args['--dry-run'])
-  @client.wait_until(:instance_stopped, instance_ids: [instance_id])
-  puts 'Instance stopped.'
-rescue Aws::EC2::Errors::DryRunOperation => e
-  puts "Check permissions to perform this operation: #{e.message}"
-rescue StandardError => e
-  puts "Error stopping instance: #{e.message}"
+  @client.stop_instances(instance_ids: [@ec2.instance_id], dry_run: @args['--dry-run'])
+  @client.wait_until(:instance_stopped, instance_ids: [@ec2.instance_id])
+  puts 'Instance stopped successfully.'
+rescue => e
+  exception_handler(e, 'stop')
 end
 
 def reboot_instance
-  instance_id = @ec2.instance_id
-
   unless @args['--dry-run']
     if @ec2.state.name == 'terminated'
       puts('Error requesting reboot: the instance is already terminated.') || return
-    else
-      @client.reboot_instances(instance_ids: [instance_id], dry_run: @args['--dry-run'])
-      puts 'Reboot request sent.'
     end
   end
 
-rescue Aws::EC2::Errors::DryRunOperation => e
-puts "Check permissions to perform this operation: #{e.message}"
-rescue StandardError => e
-puts "Error requesting reboot: #{e.message}"
+  @client.reboot_instances(instance_ids: [@ec2.instance_id], dry_run: @args['--dry-run'])
+  puts 'Reboot request sent.'
+rescue => e
+  exception_handler(e, 'reboot')
 end
 
 def terminate_instance
-  instance_id = @ec2.instance_id
-
   unless @args['--dry-run']
     if @ec2.state.name == 'terminated'
       puts('The instance is already terminated.') || return
     end
   end
 
-  @client.terminate_instances(instance_ids: [instance_id], dry_run: @args['--dry-run'])
-  @client.wait_until(:instance_terminated, instance_ids: [instance_id])
-  puts 'Instance terminated.'
-rescue Aws::EC2::Errors::DryRunOperation => e
-  puts("Check permissions to perform this operation: #{e.message}") || return
-rescue StandardError => e
-  puts("Error terminating instance: #{e.message}") || return
+  @client.terminate_instances(instance_ids: [@ec2.instance_id], dry_run: @args['--dry-run'])
+  @client.wait_until(:instance_terminated, instance_ids: [@ec2.instance_id])
+  puts 'Instance terminated successfully.'
+rescue => e
+  exception_handler(e, 'terminate')
 end
 
 def execute_action(action_name)
-  if @ec2
-    puts "Attempting to #{action_name} instance #{@ec2.instance_id}, (this might take a few minutes)..."
-    send("#{action_name}_instance")
-  end
+  puts "Attempting to #{action_name} instance #{@ec2.instance_id}, this might take a few minutes..."
+  send(:"#{action_name}_instance")
 end
 
 @ec2 = @args['<instance_id>'].nil? ? @resource.instances : find_ec2_by(@args['<instance_id>'])
+return "No instances found" unless @ec2
 
 case
 when @args['list']
-  puts("No instances found ") || return if @ec2.nil?
-
   filter_state = @args['--running'] || @args['--stopped']
   if filter_state
     state_name = @args['--running'] ? 'running' : 'stopped'
@@ -181,7 +168,7 @@ when @args['list']
   end
   print(@ec2)
 when @args['describe']
-  print([@ec2]) if @ec2
+  print([@ec2])
 when @args['start']
   execute_action('start')
 when @args['stop']
