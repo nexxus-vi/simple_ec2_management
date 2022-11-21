@@ -1,5 +1,9 @@
-require 'aws-sdk-ec2'
-require 'docopt'
+begin
+  require 'aws-sdk-ec2'
+  require 'docopt'
+rescue LoadError => e
+  puts("#{e.message}\nPlease run 'bundle install' to install missing gems") || return
+end
 
 doc = <<DOCOPT
   EC2 Management.
@@ -21,19 +25,25 @@ doc = <<DOCOPT
 DOCOPT
 
 begin
-  @args = Docopt.docopt(doc, version: '1.1.0')
+  @args = Docopt.docopt(doc, version: '1.1.3')
 rescue Docopt::Exit => e
   puts e.message
   exit
 end
 
-@client ||= Aws::EC2::Client.new
-@resource ||= Aws::EC2::Resource.new(client: @client)
+begin
+  @client = Aws::EC2::Client.new
+  @resource = Aws::EC2::Resource.new(client: @client)
+rescue ArgumentError => e
+  puts("Error: #{e.message}") || return
+end
 
 def find_ec2_by(instance_id)
   ec2 = @resource.instances.find { |i| i.instance_id == instance_id }
   puts("No instance found with id: #{instance_id}") || return if ec2.nil?
   ec2
+rescue => e
+  exception_handler(e)
 end
 
 def print(ec2)
@@ -71,18 +81,22 @@ def print(ec2)
       end
       puts 'Security groups:'
       instance.security_groups.each do |e|
-        puts "                           Group name = #{e[:group_name]}, Group ID = #{e[:group_id]}"
+        puts "                           GroupName = #{e[:group_name]}, GroupID = #{e[:group_id]}"
       end
     end
   end
+rescue => e
+  exception_handler(e)
 end
 
-def exception_handler(e, action)
+def exception_handler(e)
   case e
   when Aws::EC2::Errors::DryRunOperation
-    puts "Check permissions to perform this operation: #{e.message}"
+    puts("Checking permissions to perform this operation: #{e.message}") || return
+  when Aws::EC2::Errors::UnauthorizedOperation
+    puts("Error executing action: #{e.message}") || return
   when StandardError
-    puts "Error requesting #{action} action: #{e.message}"
+    puts("Error requesting action: #{e.message}") || return
   end
 end
 
@@ -102,7 +116,7 @@ def start_instance
   @client.wait_until(:instance_running, instance_ids: [@ec2.instance_id])
   puts 'Instance started successfully.'
 rescue => e
-  exception_handler(e, 'start')
+  exception_handler(e)
 end
 
 def stop_instance
@@ -121,7 +135,7 @@ def stop_instance
   @client.wait_until(:instance_stopped, instance_ids: [@ec2.instance_id])
   puts 'Instance stopped successfully.'
 rescue => e
-  exception_handler(e, 'stop')
+  exception_handler(e)
 end
 
 def reboot_instance
@@ -134,7 +148,7 @@ def reboot_instance
   @client.reboot_instances(instance_ids: [@ec2.instance_id], dry_run: @args['--dry-run'])
   puts 'Reboot request sent.'
 rescue => e
-  exception_handler(e, 'reboot')
+  exception_handler(e)
 end
 
 def terminate_instance
@@ -148,7 +162,7 @@ def terminate_instance
   @client.wait_until(:instance_terminated, instance_ids: [@ec2.instance_id])
   puts 'Instance terminated successfully.'
 rescue => e
-  exception_handler(e, 'terminate')
+  exception_handler(e)
 end
 
 def execute_action(action_name)
