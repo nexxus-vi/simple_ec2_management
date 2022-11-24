@@ -6,7 +6,7 @@ rescue LoadError => e
 end
 
 doc = <<DOCOPT
-  EC2 Management.
+  Simple EC2 Management.
 
   Usage:
     ec2 list [--verbose] [-r | -s]
@@ -25,7 +25,7 @@ doc = <<DOCOPT
 DOCOPT
 
 begin
-  @args = Docopt.docopt(doc, version: '1.1.3')
+  @args = Docopt.docopt(doc, version: '1.1.4')
 rescue Docopt::Exit => e
   puts e.message
   exit

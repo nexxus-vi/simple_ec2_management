@@ -17,19 +17,23 @@ You have to set up your AWS credentials as described in the [official documentat
 **Usage**
 
 ```
-  ec2 list [--verbose] [-r | -s]
-  ec2 describe <instance_id>
-  ec2 (start | stop | reboot | terminate) <instance_id> [--dry-run]
-  ec2 -h | --help
-  ec2 --version
+$ ruby ec2.rb -h
+Simple EC2 Management.
 
-Options:
-  -h --help       Show this screen.
-  -r, --running   Show only running instances.
-  -s, --stopped   Show only stopped instances.
-  --dry-run       Checks whether you have the required permissions for the action, without actually making the request.
-  --verbose       Verbose output
-  -v, --version   Show version.
+  Usage:
+    ec2 list [--verbose] [-r | -s]
+    ec2 describe <instance_id>
+    ec2 (start | stop | reboot | terminate) <instance_id> [--dry-run]
+    ec2 -h | --help
+    ec2 --version
+
+  Options:
+    -h --help       Show this screen.
+    -r, --running   Show only running instances.
+    -s, --stopped   Show only stopped instances.
+    --dry-run       Checks whether you have the required permissions for the action, without actually making the request.
+    --verbose       Verbose output
+    -v, --version   Show version.
 ```
 
 ***Example usage:***
