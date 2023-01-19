@@ -25,7 +25,7 @@ doc = <<DOCOPT
 DOCOPT
 
 begin
-  @args = Docopt.docopt(doc, version: '1.1.4')
+  @args = Docopt.docopt(doc, version: '1.1.5')
 rescue Docopt::Exit => e
   puts e.message
   exit
@@ -41,6 +41,7 @@ end
 def find_ec2_by(instance_id)
   ec2 = @resource.instances.find { |i| i.instance_id == instance_id }
   puts("No instance found with id: #{instance_id}") || return if ec2.nil?
+
   ec2
 rescue => e
   exception_handler(e)
@@ -139,11 +140,7 @@ rescue => e
 end
 
 def reboot_instance
-  unless @args['--dry-run']
-    if @ec2.state.name == 'terminated'
-      puts('Error requesting reboot: the instance is already terminated.') || return
-    end
-  end
+  puts('Error requesting reboot: the instance is already terminated.') || return if !@args['--dry-run'] && (@ec2.state.name == 'terminated')
 
   @client.reboot_instances(instance_ids: [@ec2.instance_id], dry_run: @args['--dry-run'])
   puts 'Reboot request sent.'
@@ -152,11 +149,7 @@ rescue => e
 end
 
 def terminate_instance
-  unless @args['--dry-run']
-    if @ec2.state.name == 'terminated'
-      puts('The instance is already terminated.') || return
-    end
-  end
+  puts('The instance is already terminated.') || return if !@args['--dry-run'] && (@ec2.state.name == 'terminated')
 
   @client.terminate_instances(instance_ids: [@ec2.instance_id], dry_run: @args['--dry-run'])
   @client.wait_until(:instance_terminated, instance_ids: [@ec2.instance_id])
@@ -171,24 +164,23 @@ def execute_action(action_name)
 end
 
 @ec2 = @args['<instance_id>'].nil? ? @resource.instances : find_ec2_by(@args['<instance_id>'])
-return "No instances found" unless @ec2
+return 'No instances found' unless @ec2
 
-case
-when @args['list']
+if @args['list']
   filter_state = @args['--running'] || @args['--stopped']
   if filter_state
     state_name = @args['--running'] ? 'running' : 'stopped'
-    @ec2 = @ec2.select {|i| i.state.name == state_name}
+    @ec2 = @ec2.select { |i| i.state.name == state_name }
   end
   print(@ec2)
-when @args['describe']
+elsif @args['describe']
   print([@ec2])
-when @args['start']
+elsif @args['start']
   execute_action('start')
-when @args['stop']
+elsif @args['stop']
   execute_action('stop')
-when @args['reboot']
+elsif @args['reboot']
   execute_action('reboot')
-when @args['terminate']
+elsif @args['terminate']
   execute_action('terminate')
 end
