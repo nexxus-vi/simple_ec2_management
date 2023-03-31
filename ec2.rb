@@ -25,7 +25,7 @@ doc = <<DOCOPT
 DOCOPT
 
 begin
-  @args = Docopt.docopt(doc, version: '1.1.5')
+  @args = Docopt.docopt(doc, version: '1.1.6')
 rescue Docopt::Exit => e
   puts e.message
   exit
@@ -53,14 +53,14 @@ def print(ec2)
   puts "Instances: #{ec2.count}"
   ec2.each.with_index(1) do |instance, i|
     instance_name = instance.tags.find { |t| break t[:value] if t[:key] == 'Name' }
-    is_running = (instance.state.name == 'running')
+    running = (instance.state.name == 'running')
     state_reason = instance.state_reason.code unless instance.state_reason.nil?
 
     puts '~' * 50
     puts "##{i}"
     puts "Instance ID:               #{instance.instance_id}"
     puts "Name:                      #{instance_name}"
-    puts is_running ? "State:                     #{instance.state.name.upcase}" : "State:                     #{instance.state.name.upcase} - Reason: #{state_reason}"
+    puts running ? "State:                     #{instance.state.name.upcase}" : "State:                     #{instance.state.name.upcase} - Reason: #{state_reason}"
     puts "Private IP address:        #{instance.private_ip_address}"
 
     if verbose_output || @args['describe']
@@ -81,8 +81,8 @@ def print(ec2)
         end
       end
       puts 'Security groups:'
-      instance.security_groups.each do |e|
-        puts "                           GroupName = #{e[:group_name]}, GroupID = #{e[:group_id]}"
+      instance.security_groups.each do |sg|
+        puts "                           GroupName = #{sg[:group_name]}, GroupID = #{sg[:group_id]}"
       end
     end
   end
@@ -170,7 +170,7 @@ if @args['list']
   filter_state = @args['--running'] || @args['--stopped']
   if filter_state
     state_name = @args['--running'] ? 'running' : 'stopped'
-    @ec2 = @ec2.select { |i| i.state.name == state_name }
+    @ec2 = @ec2.select { |instance| instance.state.name == state_name }
   end
   print(@ec2)
 elsif @args['describe']

@@ -8,6 +8,10 @@ This is a simple script to manage existing EC2 instances on AWS.
 
 You have to set up your AWS credentials as described in the [official documentation](https://docs.aws.amazon.com/sdk-for-ruby/v3/developer-guide/setup-config.html)
 
+Alternatively you can initialize `@client` with `access_key_id`, `secret_access_key` and `region`:
+
+`@client = Aws::EC2::Client.new(access_key_id: 'ACCESSKEY', secret_access_key: 'SECRET', region: 'eu-north-1')`
+
 **Install gems**
 
 `gem install bundler:2.2.32`
